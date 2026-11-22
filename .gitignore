@@ -2,3 +2,5 @@ temp
 
 .venv
 .vscode
+
+__pycache__
