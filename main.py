@@ -1,13 +1,14 @@
-import numpy as np
-import pygame
+from math import ceil, hypot
 from random import uniform
 
-from globals import entropy, height, numParticles, quadtreeCapacity, width
+import pygame
+
+from globals import entropy, height, numParticles, particleDiameter, particleRadius, quadtreeCapacity, width
 from Quadtree import Quadtree
 
-particleRadius = 5
 canvasSize = (1440, 900)
 arena = pygame.Rect(48, 96, 1344, 707)
+maxSpeed = particleRadius
 
 background = (0, 0, 0)
 border = (52, 52, 52)
@@ -39,14 +40,88 @@ def render(canvas, simulation, quadtree, particles, showBorders, fps, fonts):
 
 
 def resolveCollision(p1, p2):
-    p1x, p1y, p2x, p2y = p1[0], p1[1], p2[0], p2[1]
-    angle = np.arctan2(p2y - p1y, p2x - p1x)
-    overlap = ((particleRadius<<1) - np.linalg.norm([p2x-p1x, p2y-p1y]))/2
-    Osin, Ocos, = np.sin(angle)*overlap, np.cos(angle)*overlap
-    p1[0] -= Ocos
-    p1[1] -= Osin
-    p2[0] -= Ocos
-    p2[1] -= Osin
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    distance = hypot(dx, dy)
+    if distance >= particleDiameter:
+        return
+
+    dvx, dvy = p1[2] - p2[2], p1[3] - p2[3]
+    if distance:
+        nx, ny = dx / distance, dy / distance
+    else:
+        relativeSpeed = hypot(dvx, dvy)
+        nx, ny = (dvx / relativeSpeed, dvy / relativeSpeed) if relativeSpeed else (1, 0)
+
+    shift = (particleDiameter - distance) / 2
+    p1[0] -= shift * nx
+    p1[1] -= shift * ny
+    p2[0] += shift * nx
+    p2[1] += shift * ny
+
+    # Equal masses exchange their velocity components along the contact normal.
+    closingSpeed = dvx * nx + dvy * ny
+    if closingSpeed > 0:
+        p1[2] -= closingSpeed * nx
+        p1[3] -= closingSpeed * ny
+        p2[2] += closingSpeed * nx
+        p2[3] += closingSpeed * ny
+
+    containParticle(p1)
+    containParticle(p2)
+
+
+def containParticle(particle):
+    for axis, extent in enumerate((width, height)):
+        if particle[axis] <= particleRadius:
+            particle[axis] = particleRadius
+            particle[axis + 2] = abs(particle[axis + 2])
+        elif particle[axis] >= extent - particleRadius:
+            particle[axis] = extent - particleRadius
+            particle[axis + 2] = -abs(particle[axis + 2])
+
+
+def buildTree(particles):
+    quadtree = Quadtree((0, 0, width, height), quadtreeCapacity)
+    for particle in particles:
+        quadtree.insert(particle)
+    return quadtree
+
+
+def advanceParticles(particles):
+    fastest = 0
+    for particle in particles:
+        particle[2] += uniform(-entropy, entropy)
+        particle[3] += uniform(-entropy, entropy)
+        speed = hypot(particle[2], particle[3])
+        if speed > maxSpeed:
+            scale = maxSpeed / speed
+            particle[2] *= scale
+            particle[3] *= scale
+            speed = maxSpeed
+        fastest = max(fastest, speed)
+
+    # Keep movement small relative to a circle so fast particles still meet.
+    substeps = max(1, ceil(fastest / (particleRadius / 2)))
+    for _ in range(substeps):
+        for particle in particles:
+            particle[0] += particle[2] / substeps
+            particle[1] += particle[3] / substeps
+            containParticle(particle)
+
+        quadtree = buildTree(particles)
+        pairs = []
+        visited = set()
+        # Find pairs before the response moves particles out of their indexed cells.
+        for particle in particles:
+            visited.add(id(particle))
+            x, y = particle[:2]
+            foundParticles = []
+            quadtree.query((x - particleDiameter, y - particleDiameter,
+                            2 * particleDiameter, 2 * particleDiameter), foundParticles)
+            pairs.extend((particle, other) for other in foundParticles if id(other) not in visited)
+
+        for particle, other in pairs:
+            resolveCollision(particle, other)
 
 
 def main() -> None:
@@ -65,11 +140,9 @@ def main() -> None:
     )
     showBorders = True
 
-    particles = [np.array((uniform(0, width), uniform(0, height), 0, 0), dtype=float)
+    particles = [[uniform(particleRadius, width - particleRadius),
+                  uniform(particleRadius, height - particleRadius), 0.0, 0.0]
                  for _ in range(numParticles)]  # x, y, vx, vy
-    quadtree = Quadtree((0, 0, width, height), quadtreeCapacity)
-    for particle in particles:
-        quadtree.insert(particle)
 
     while True:
         for event in pygame.event.get():
@@ -83,26 +156,8 @@ def main() -> None:
                 if event.key == pygame.K_w:
                     showBorders = not showBorders
 
-        for particle in particles:
-            particle[2] += uniform(-entropy, entropy)
-            particle[3] += uniform(-entropy, entropy)
-            particle[0] = (particle[0] + particle[2]) % width
-            particle[1] = (particle[1] + particle[3]) % height
-
-        for particle in particles:
-            x, y = particle[:2]
-            treeRange = (x, y, particleRadius << 1, particleRadius << 1)
-            foundParticles = []
-            quadtree.query(treeRange, foundParticles)
-            for otherParticle in foundParticles:
-                if not np.array_equal(particle, otherParticle):
-                    if np.linalg.norm((x - otherParticle[0], y - otherParticle[1])) < particleRadius << 1:
-                        resolveCollision(particle, otherParticle)
-
-        quadtree = Quadtree((0, 0, width, height), quadtreeCapacity)
-        for particle in particles:
-            quadtree.insert(particle)
-
+        advanceParticles(particles)
+        quadtree = buildTree(particles) if showBorders else None
         render(canvas, simulation, quadtree, particles, showBorders, clock.get_fps(), fonts)
         frame = canvas.get_rect().fit(window.get_rect())
         frame.center = window.get_rect().center

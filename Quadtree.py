@@ -1,6 +1,4 @@
-from globals import particleDiameter
 import pygame
-import numpy as np
 
 class Quadtree:
     def __init__(self, boundary, capacity):
@@ -23,30 +21,40 @@ class Quadtree:
 
     def subdivide(self):
         x, y, w, h = self.boundary
+        self.midX, self.midY = x + w/2, y + h/2
         nw = Quadtree((x, y, w/2, h/2), self.capacity)
-        ne = Quadtree((x + w/2, y, w/2, h/2), self.capacity)
-        sw = Quadtree((x, y + h/2, w/2, h/2), self.capacity)
-        se = Quadtree((x + w/2, y + h/2, w/2, h/2), self.capacity)
+        ne = Quadtree((self.midX, y, w/2, h/2), self.capacity)
+        sw = Quadtree((x, self.midY, w/2, h/2), self.capacity)
+        se = Quadtree((self.midX, self.midY, w/2, h/2), self.capacity)
         self.children = (nw, ne, sw, se)
         self.divided = True
 
     def insert(self, particle):
-        if not self.boundaryContains(particle): return False
+        if not self.boundaryContains(particle):
+            return False
 
-        if len(self.particles) < self.capacity:
-            self.particles.append(particle)
-            return True
-        else:
-            if not self.divided: self.subdivide()
-            for child in self.children:
-                if child.insert(particle): return True
+        node = self
+        while len(node.particles) >= node.capacity and min(node.boundary[2:]) > 1:
+            if not node.divided:
+                node.subdivide()
+            east = particle[0] >= node.midX
+            south = particle[1] >= node.midY
+            node = node.children[2 * south + east]
+
+        # A cell at the minimum size can hold multiple coincident particles.
+        node.particles.append(particle)
+        return True
 
     def query(self, treeRange, foundParticles):
         if not self.boundaryIntersects(treeRange): return
+        x, y, w, h = treeRange
+        right, bottom = x + w, y + h
         for particle in self.particles:
-            if np.linalg.norm([particle[0] - treeRange[0], particle[1] - treeRange[1]]) < particleDiameter:
+            if x <= particle[0] < right and y <= particle[1] < bottom:
                 foundParticles.append(particle)
-        if self.divided: [child.query(treeRange, foundParticles) for child in self.children]
+        if self.divided:
+            for child in self.children:
+                child.query(treeRange, foundParticles)
 
     def boundaryContains(self, particle):
         x, y, w, h = self.boundary
