@@ -1,4 +1,4 @@
-from globals import *
+from globals import particleDiameter
 import pygame
 import numpy as np
 
@@ -9,7 +9,17 @@ class Quadtree:
         self.particles = []
         self.divided = False
 
-        if showBorders: pygame.draw.rect(window, (0, 255, 0), boundary, 1)
+    def draw(self, surface, depth=0):
+        if not self.divided:
+            return
+        x, y, w, h = self.boundary
+        midX, midY = x + w / 2, y + h / 2
+        shade = max(52, 104 - depth * 13)
+        color = (shade, shade, shade)
+        pygame.draw.line(surface, color, (midX, y), (midX, y + h), 2)
+        pygame.draw.line(surface, color, (x, midY), (x + w, midY), 2)
+        for child in self.children:
+            child.draw(surface, depth + 1)
 
     def subdivide(self):
         x, y, w, h = self.boundary
