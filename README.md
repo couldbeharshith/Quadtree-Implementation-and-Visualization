@@ -2,7 +2,7 @@
 
 A Python and Pygame demo of a quadtree with 600 moving particles. The grid shows how the tree divides space for nearby collision checks.
 
-![Quadtree simulation with the grid toggled on and off](Demo/quadtree-demo.gif)
+![Quadtree simulation with the grid toggled on and off](assets/quadtree-demo.gif)
 
 ## Run locally
 
