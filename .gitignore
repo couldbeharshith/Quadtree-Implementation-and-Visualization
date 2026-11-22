@@ -1,6 +1,7 @@
-temp
+/temp/
+.vscode/
 
-.venv
-.vscode
-
-__pycache__
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
